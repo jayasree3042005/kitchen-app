@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Kitchen Orders</title>
+</head>
+<body>
+  <h1>Kitchen Orders System</h1>
+
+  <input id="dish" placeholder="Enter dish name">
+  <button onclick="createOrder()">Create Order</button>
+
+  <h2>Orders</h2>
+  <ul id="orders"></ul>
+
+<script>
+const API = "http://localhost:3000";
+
+async function loadOrders(){
+  const res = await fetch(API + "/orders");
+  const data = await res.json();
+  const list = document.getElementById("orders");
+  list.innerHTML = "";
+  data.forEach(o=>{
+    const li=document.createElement("li");
+    li.textContent = o.dish + " - " + o.status;
+    list.appendChild(li);
+  });
+}
+
+async function createOrder(){
+  const dish=document.getElementById("dish").value;
+  await fetch(API+"/orders",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({dish})
+  });
+  loadOrders();
+}
+
+loadOrders();
+</script>
+
+</body>
+</html>
