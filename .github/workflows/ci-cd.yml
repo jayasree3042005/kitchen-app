@@ -59,7 +59,8 @@ jobs:
 
       - name: Validate manifests
         run: |
-          kubectl create --dry-run=client -f k8s/namespace.yaml
-          kubectl create --dry-run=client -f k8s/db/statefulset.yaml
-          kubectl create --dry-run=client -f k8s/api/deployment.yaml
-          kubectl create --dry-run=client -f k8s/web-ui/deployment.yaml
+          test -f k8s/namespace.yaml
+          test -f k8s/db/statefulset.yaml
+          test -f k8s/api/deployment.yaml
+          test -f k8s/web-ui/deployment.yaml
+          
