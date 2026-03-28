@@ -94,9 +94,20 @@ data:
         </div>
       </div>
       <script>
-        const apiBase = '/api';
+        const apiCandidates = ['/api', 'http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5050'];
+        let apiBase = '/api';
+
         const el = (id) => document.getElementById(id);
         function fmtDate(v) { try { const d = new Date(v); if (Number.isNaN(d.getTime())) return ''; return d.toLocaleString(); } catch { return ''; } }
+        async function findApiBase() {
+          for (const candidate of apiCandidates) {
+            try {
+              const r = await fetch(candidate + '/health', { cache: 'no-cache' });
+              if (r.ok) { apiBase = candidate; return apiBase; }
+            } catch (_e) { }
+          }
+          return apiBase;
+        }
         async function apiGet(path) { const r = await fetch(apiBase + path, { headers: { 'Accept': 'application/json' } }); return { r, data: await r.json().catch(() => null) }; }
         async function refreshHealth() { const s = el('apiStatus'); try { const { r, data } = await apiGet('/health'); if (r.ok) { s.textContent = data?.db ? `ok (db: ${data.db})` : 'ok'; s.className = 'ok'; } else { s.textContent = `error (${r.status})`; s.className = 'bad'; } } catch (e) { s.textContent = 'offline'; s.className = 'bad'; } }
         async function refreshOrders() {
@@ -137,7 +148,13 @@ data:
         el('createBtn').addEventListener('click', createOrder);
         el('refreshBtn').addEventListener('click', refreshOrders);
         el('dish').addEventListener('keydown', (e) => { if (e.key === 'Enter') createOrder(); });
-        refreshHealth(); refreshOrders(); setInterval(refreshHealth, 8000); setInterval(refreshOrders, 5000);
+        (async () => {
+          await findApiBase();
+          await refreshHealth();
+          await refreshOrders();
+          setInterval(async () => { await findApiBase(); await refreshHealth(); }, 8000);
+          setInterval(refreshOrders, 5000);
+        })();
       </script>
     </body>
     </html>
