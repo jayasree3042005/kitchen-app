@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kitchen Orders</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111b35;
+      --panel-alt: #14243f;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-2: #22c55e;
+      --danger: #ef4444;
+      --radius: 14px;
+      --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: radial-gradient(circle at 20% 40%, #1f2a50 0%, var(--bg) 65%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 2rem auto;
+      padding: 1rem;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 1.2rem;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 2rem;
+      letter-spacing: 0.4px;
+    }
+
+    .subtitle {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+    }
+
+    .card {
+      background: linear-gradient(150deg, var(--panel), var(--panel-alt));
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      box-shadow: var(--shadow);
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      padding: 1.1rem;
+    }
+
+    .controls {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: stretch;
+    }
+
+    .controls input {
+      flex: 1;
+      min-width: 220px;
+      padding: 0.72rem 0.9rem;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 10px;
+      color: var(--text);
+      background: rgba(15, 23, 42, 0.8);
+      font-size: 1rem;
+    }
+
+    .controls button {
+      border: none;
+      border-radius: 10px;
+      padding: 0.75rem 1.1rem;
+      font-weight: 600;
+      color: white;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      background: var(--accent);
+      box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+    }
+
+    .controls button:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(59, 130, 246, 0.45); }
+
+    .controls button.secondary {
+      background: #334155;
+      box-shadow: 0 10px 25px rgba(56, 189, 248, 0.1);
+    }
+
+    .stat-chip {
+      margin-right: 0.8rem;
+      padding: 0.4rem 0.8rem;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.2);
+      color: #bfdbfe;
+      border: 1px solid rgba(59,130,246,0.35);
+      font-size: 0.88rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 560px;
+    }
+
+    table thead tr {
+      color: #cbd5e1;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+    }
+
+    table th,
+    table td {
+      text-align: left;
+      padding: 0.75rem 0.8rem;
+      font-size: 0.95rem;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+      transition: background 0.2s ease;
+    }
+
+    tbody tr:hover { background: rgba(15, 23, 42, 0.8); }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-weight: 600;
+      color: #a5b4fc;
+    }
+
+    .status.served { color: #86efac; }
+    .status.pending { color: #facc15; }
+    .status.transit { color: #60a5fa; }
+
+    .error { color: #f87171; }
+
+    @media (max-width: 800px) {
+      .app { margin: 1rem; }
+      header { flex-direction: column; align-items: flex-start; }
+      .controls { width: 100%; }
+      table { min-width: auto; }
+      table th, table td { font-size: 0.89rem; padding: 0.7rem; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <h1 class="title">Kitchen Orders</h1>
+        <p class="subtitle">Create orders and track status in real-time.</p>
+      </div>
+      <div class="stat-chip" id="api-status">API status: connecting...</div>
+    </header>
+
+    <section class="card">
+      <div class="controls">
+        <input id="dish" placeholder="Order dish name (e.g., Veg Biryani)" />
+        <button id="create-btn" onclick="createOrder()">Create Order</button>
+        <button class="secondary" onclick="loadOrders()">Refresh</button>
+      </div>
+      <p id="message" class="muted" style="margin-top:.8rem; color: var(--muted);">Enter a dish and click Create Order.</p>
+    </section>
+
+    <section class="card">
+      <div style="margin-bottom:.8rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+        <span class="stat-chip" id="orders-count">Orders: 0</span>
+        <span class="muted" style="font-size:0.86rem;">Updated: <span id="updated-at">--</span></span>
+      </div>
+
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Dish</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>ID</th>
+            </tr>
+          </thead>
+          <tbody id="orders"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const apiCandidates = ['/api', 'http://localhost:3000', 'http://127.0.0.1:3000'];
+    let API = '/api';
+
+    async function setApiStatus(status, color) {
+      const node = document.getElementById('api-status');
+      node.textContent = `API status: ${status}`;
+      node.style.color = color;
+    }
+
+    async function findApiEndpoint() {
+      for (const candidate of apiCandidates) {
+        try {
+          const res = await fetch(candidate + '/health', { cache: 'no-cache' });
+          if (res.ok) {
+            API = candidate;
+            return candidate;
+          }
+        } catch (_err) {
+          // ignore and try next candidate
+        }
+      }
+      return API;
+    }
+
+    function formatDate(ts) {
+      return new Date(ts).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
+    }
+
+    function mapStatusClass(status) {
+      const normalized = (status || '').toLowerCase();
+      if (normalized.includes('served')) return 'served';
+      if (normalized.includes('pending')) return 'pending';
+      return 'transit';
+    }
+
+    async function loadOrders() {
+      try {
+        const res = await fetch(API + '/orders');
+        if (!res.ok) throw new Error('Failed to fetch orders');
+
+        const data = await res.json();
+        const tbody = document.getElementById('orders');
+        tbody.innerHTML = '';
+
+        const sorted = Array.isArray(data) ? data.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)) : [];
+
+        sorted.forEach(o => {
+          const tr = document.createElement('tr');
+          const id = o._id || o.id || '-';
+
+          tr.innerHTML = `
+            <td>${o.dish || '-'} </td>
+            <td><span class="status ${mapStatusClass(o.status)}">${o.status || 'pending'}</span></td>
+            <td>${o.createdAt ? formatDate(o.createdAt) : '-'}</td>
+            <td style="color:#94a3b8;">${id}</td>
+          `;
+
+          tbody.appendChild(tr);
+        });
+
+        document.getElementById('orders-count').textContent = `Orders: ${sorted.length}`;
+        document.getElementById('updated-at').textContent = formatDate(Date.now());
+        setApiStatus(`ok (db connected via ${API})`, '#22c55e');
+        document.getElementById('message').textContent = `${sorted.length} orders loaded.`;
+      } catch (err) {
+        setApiStatus(`offline (${API})`, '#ef4444');
+        document.getElementById('message').textContent = 'Could not load orders. Check API server and network.';
+      }
+    }
+
+    async function createOrder() {
+      const dishInput = document.getElementById('dish');
+      const dish = dishInput.value.trim();
+      if (!dish) {
+        document.getElementById('message').textContent = 'Please enter a dish name.';
+        return;
+      }
+
+      try {
+        const res = await fetch(API + '/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dish })
+        });
+
+        if (!res.ok) throw new Error('Create failed');
+
+        dishInput.value = '';
+        document.getElementById('message').textContent = 'Order created successfully.';
+        await loadOrders();
+      } catch (err) {
+        document.getElementById('message').textContent = 'Unable to create order right now. Try again.';
+      }
+    }
+
+    (async function init() {
+      await findApiEndpoint();
+      await loadOrders();
+      setInterval(async () => {
+        await findApiEndpoint();
+        await loadOrders();
+      }, 15000);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-deployment
+  namespace: kitchen-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+
+        volumeMounts:
+        # ✅ Dashboard JSON mount
+        - name: grafana-dashboards
+          mountPath: /var/lib/grafana/dashboards
+
+        # ✅ Provisioning config mount (VERY IMPORTANT)
+        - name: grafana-provisioning
+          mountPath: /etc/grafana/provisioning/dashboards
+
+      volumes:
+      # ✅ Dashboard ConfigMap
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboards
+
+      # ✅ Provisioning ConfigMap (NEW)
+      - name: grafana-provisioning
+        configMap:
+          name: grafana-provisioning
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: kitchen-app
+spec:
+  type: NodePort
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+    nodePort: 30300

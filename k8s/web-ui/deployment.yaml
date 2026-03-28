@@ -1,0 +1,495 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-ui-config
+  namespace: kitchen-app
+data:
+  nginx.conf: |
+    server {
+        listen 80;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Same-origin API proxy (works in Docker Compose + Kubernetes)
+        location /api/ {
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_pass http://api:3000/;
+        }
+
+        location /health {
+            access_log off;
+            default_type text/plain;
+            return 200 'OK';
+        }
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Kitchen Orders Management</title>
+      <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+      <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+      <style>
+        body { background-color: #f8f9fa; transition: background-color 0.3s, color 0.3s; }
+        body.dark-mode { background-color: #212529; color: #f8f9fa; }
+        .navbar-brand { font-weight: bold; }
+        .card { border: none; box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); transition: all 0.3s; }
+        .dark-mode .card { background-color: #343a40; color: #f8f9fa; }
+        .status-badge { font-size: 0.75rem; }
+        .table-hover tbody tr:hover { background-color: rgba(0, 0, 0, 0.075); cursor: pointer; }
+        .dark-mode .table-hover tbody tr:hover { background-color: rgba(255, 255, 255, 0.1); }
+        .btn-primary { background-color: #007bff; border-color: #007bff; }
+        .btn-primary:hover { background-color: #0056b3; border-color: #004085; }
+        .alert { border-radius: 0.375rem; }
+        .form-control:focus { border-color: #007bff; box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25); }
+        .stats-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .stats-card .card-body { padding: 1.5rem; }
+        .stats-card h5 { margin-bottom: 0.5rem; font-size: 2rem; }
+        .stats-card p { margin: 0; opacity: 0.9; }
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 1055; }
+        .order-row { transition: all 0.2s; }
+        .order-row:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .dark-mode .order-row:hover { box-shadow: 0 2px 4px rgba(255,255,255,0.2); }
+        .filter-badge { cursor: pointer; transition: all 0.2s; }
+        .filter-badge:hover { transform: scale(1.05); }
+        .dark-mode .table { color: #f8f9fa; }
+        .dark-mode .table thead th { background-color: #495057; border-color: #6c757d; color: #f8f9fa; }
+        .dark-mode .table tbody td { border-color: #6c757d; }
+      </style>
+    </head>
+    <body>
+      <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="#"><i class="fas fa-utensils me-2"></i>Kitchen Orders</a>
+          <div class="d-flex align-items-center">
+            <span class="navbar-text me-3">
+              <i class="fas fa-circle text-success"></i> API: <span id="apiStatus">checking…</span>
+            </span>
+            <div class="btn-group me-3" role="group">
+              <a href="/api/metrics" target="_blank" class="btn btn-outline-light btn-sm"><i class="fas fa-chart-line"></i> Metrics</a>
+              <a href="/api/health" target="_blank" class="btn btn-outline-light btn-sm"><i class="fas fa-heartbeat"></i> Health</a>
+            </div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="darkModeToggle">
+              <label class="form-check-label text-light" for="darkModeToggle">
+                <i class="fas fa-moon"></i>
+              </label>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="container-fluid">
+        <div class="row mb-4">
+          <div class="col-md-3">
+            <div class="card stats-card">
+              <div class="card-body text-center">
+                <h5 id="orderCount">0</h5>
+                <p><i class="fas fa-clipboard-list"></i> Total Orders</p>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-9">
+            <div class="card">
+              <div class="card-header">
+                <h5 class="card-title mb-0"><i class="fas fa-plus-circle me-2"></i>Create New Order</h5>
+              </div>
+              <div class="card-body">
+                <form id="createOrderForm" class="row g-3">
+                  <div class="col-md-8">
+                    <label for="dish" class="form-label">Dish Name</label>
+                    <input type="text" class="form-control" id="dish" placeholder="Enter dish name (e.g., Masala Dosa)" autocomplete="off" required>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label">&nbsp;</label>
+                    <button type="submit" class="btn btn-primary w-100" id="createBtn">
+                      <i class="fas fa-plus me-2"></i>Create Order
+                    </button>
+                  </div>
+                </form>
+                <div id="createMsg" class="mt-3"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
+            <h5 class="card-title mb-0"><i class="fas fa-list me-2"></i>Orders</h5>
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+              <select class="form-select form-select-sm" id="statusFilter" style="width: auto;">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="preparing">Preparing</option>
+                <option value="ready">Ready</option>
+                <option value="completed">Completed</option>
+              </select>
+              <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Search orders..." style="width: 200px;">
+              <div class="btn-group" role="group">
+                <button class="btn btn-outline-primary btn-sm" id="refreshBtn">
+                  <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button class="btn btn-outline-success btn-sm" id="exportBtn">
+                  <i class="fas fa-download"></i> Export CSV
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" id="autoRefreshToggle">
+                  <i class="fas fa-play"></i> Auto
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th><i class="fas fa-utensils me-1"></i>Dish</th>
+                    <th><i class="fas fa-info-circle me-1"></i>Status</th>
+                    <th><i class="fas fa-calendar me-1"></i>Created</th>
+                    <th><i class="fas fa-id-card me-1"></i>ID</th>
+                  </tr>
+                </thead>
+                <tbody id="ordersBody">
+                  <tr>
+                    <td colspan="4" class="text-center text-muted py-4">
+                      <i class="fas fa-spinner fa-spin me-2"></i>Loading orders...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card-footer text-muted">
+            <small><i class="fas fa-lightbulb me-1"></i>Tip: Click on any order row for details. Keep auto-refresh on to monitor real-time updates.</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Order Details Modal -->
+      <div class="modal fade" id="orderModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fas fa-utensils me-2"></i>Order Details</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="orderModalBody">
+              <!-- Order details will be populated here -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast Container -->
+      <div class="toast-container" id="toastContainer"></div>
+
+      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+      <script>
+        const apiCandidates = ['/api', 'http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5050'];
+        let apiBase = '/api';
+        let allOrders = [];
+        let autoRefreshInterval = null;
+        let isAutoRefreshOn = true;
+
+        const el = (id) => document.getElementById(id);
+        function fmtDate(v) { 
+          try { 
+            const d = new Date(v); 
+            if (Number.isNaN(d.getTime())) return ''; 
+            return d.toLocaleString(); 
+          } catch { return ''; } 
+        }
+        
+        function getStatusBadge(status) {
+          const statusMap = {
+            'pending': 'warning',
+            'preparing': 'info',
+            'ready': 'success',
+            'completed': 'secondary'
+          };
+          const badgeClass = statusMap[status] || 'secondary';
+          return `<span class="badge bg-${badgeClass} status-badge">${status || 'unknown'}</span>`;
+        }
+
+        function showToast(message, type = 'info') {
+          const toastContainer = el('toastContainer');
+          const toastId = 'toast-' + Date.now();
+          const toastHTML = `
+            <div id="${toastId}" class="toast align-items-center text-white bg-${type} border-0" role="alert">
+              <div class="d-flex">
+                <div class="toast-body">${message}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+              </div>
+            </div>
+          `;
+          toastContainer.insertAdjacentHTML('beforeend', toastHTML);
+          const toastElement = el(toastId);
+          const toast = new bootstrap.Toast(toastElement);
+          toast.show();
+          toastElement.addEventListener('hidden.bs.toast', () => toastElement.remove());
+        }
+
+        function toggleDarkMode() {
+          document.body.classList.toggle('dark-mode');
+          const isDark = document.body.classList.contains('dark-mode');
+          localStorage.setItem('darkMode', isDark);
+          el('darkModeToggle').nextElementSibling.innerHTML = isDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+        }
+
+        function exportToCSV() {
+          if (!allOrders.length) {
+            showToast('No orders to export', 'warning');
+            return;
+          }
+          const headers = ['Dish', 'Status', 'Created', 'ID'];
+          const csvContent = [
+            headers.join(','),
+            ...allOrders.map(order => [
+              `"${order.dish || ''}"`,
+              `"${order.status || ''}"`,
+              `"${fmtDate(order.createdAt)}"`,
+              `"${order._id || ''}"`
+            ].join(','))
+          ].join('\n');
+          
+          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = `kitchen-orders-${new Date().toISOString().split('T')[0]}.csv`;
+          link.click();
+          showToast('Orders exported successfully!', 'success');
+        }
+
+        function showOrderDetails(order) {
+          const modalBody = el('orderModalBody');
+          modalBody.innerHTML = `
+            <div class="row g-3">
+              <div class="col-12">
+                <strong>Dish:</strong> ${order.dish || 'N/A'}
+              </div>
+              <div class="col-12">
+                <strong>Status:</strong> ${getStatusBadge(order.status)}
+              </div>
+              <div class="col-12">
+                <strong>Created:</strong> ${fmtDate(order.createdAt)}
+              </div>
+              <div class="col-12">
+                <strong>ID:</strong> <code class="small">${order._id || 'N/A'}</code>
+              </div>
+              ${order.updatedAt ? `<div class="col-12"><strong>Last Updated:</strong> ${fmtDate(order.updatedAt)}</div>` : ''}
+            </div>
+          `;
+          const modal = new bootstrap.Modal(el('orderModal'));
+          modal.show();
+        }
+
+        async function findApiBase() {
+          for (const candidate of apiCandidates) {
+            try {
+              const r = await fetch(candidate + '/health', { cache: 'no-cache' });
+              if (r.ok) { apiBase = candidate; return apiBase; }
+            } catch (_e) { }
+          }
+          return apiBase;
+        }
+
+        async function apiGet(path) { 
+          const r = await fetch(apiBase + path, { headers: { 'Accept': 'application/json' } }); 
+          return { r, data: await r.json().catch(() => null) }; 
+        }
+
+        async function refreshHealth() { 
+          const s = el('apiStatus'); 
+          try { 
+            const { r, data } = await apiGet('/health'); 
+            if (r.ok) { 
+              s.textContent = data?.db ? `Connected (${data.db})` : 'Connected'; 
+              s.className = 'text-success'; 
+            } else { 
+              s.textContent = `Error (${r.status})`; 
+              s.className = 'text-danger'; 
+            } 
+          } catch (e) { 
+            s.textContent = 'Offline'; 
+            s.className = 'text-danger'; 
+          } 
+        }
+
+        async function refreshOrders() {
+          const body = el('ordersBody');
+          const previousCount = allOrders.length;
+          body.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading orders...</td></tr>';
+          try {
+            const { r, data } = await apiGet('/orders');
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            allOrders = Array.isArray(data) ? data : [];
+            if (allOrders.length > previousCount && previousCount > 0) {
+              showToast(`New order received! Total: ${allOrders.length}`, 'success');
+            }
+            filterAndDisplayOrders();
+          } catch (e) {
+            el('orderCount').textContent = '—';
+            body.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load orders. Is the API reachable at ${apiBase}/orders?</td></tr>`;
+          }
+        }
+
+        function filterAndDisplayOrders() {
+          const searchTerm = el('searchInput').value.toLowerCase();
+          const statusFilter = el('statusFilter').value;
+          const filteredOrders = allOrders.filter(order => {
+            const matchesSearch = !searchTerm || 
+              (order.dish && order.dish.toLowerCase().includes(searchTerm)) ||
+              (order.status && order.status.toLowerCase().includes(searchTerm));
+            const matchesStatus = !statusFilter || order.status === statusFilter;
+            return matchesSearch && matchesStatus;
+          });
+
+          el('orderCount').textContent = String(allOrders.length);
+          
+          const body = el('ordersBody');
+          if (!filteredOrders.length) {
+            const message = (searchTerm || statusFilter) ? 'No orders match your filters.' : 'No orders yet. Create one above.';
+            body.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>${message}</td></tr>`;
+            return;
+          }
+
+          body.innerHTML = filteredOrders.slice().reverse().map(o => {
+            const id = (o && (o._id?.toString ? o._id.toString() : o._id)) || '';
+            return `<tr class="order-row" onclick="showOrderDetails(${JSON.stringify(o).replace(/"/g, '&quot;')})">
+              <td><strong>${(o?.dish || '')}</strong></td>
+              <td>${getStatusBadge(o?.status)}</td>
+              <td>${fmtDate(o?.createdAt)}</td>
+              <td><code class="text-muted small">${id}</code></td>
+            </tr>`;
+          }).join('');
+        }
+
+        async function createOrder() {
+          const msg = el('createMsg');
+          msg.innerHTML = '';
+          const dish = el('dish').value.trim();
+          if (!dish) { 
+            msg.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Enter a dish name first.</div>'; 
+            return; 
+          }
+          el('createBtn').disabled = true;
+          el('createBtn').innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Creating...';
+          try {
+            const r = await fetch(apiBase + '/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dish }) });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+            msg.innerHTML = `<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Created: ${data.dish} (${data.status})</div>`;
+            el('dish').value = '';
+            await refreshOrders();
+            await refreshHealth();
+            showToast('Order created successfully!', 'success');
+          } catch (e) { 
+            msg.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times-circle me-2"></i>Create failed: ${e.message || e}</div>`; 
+            showToast('Failed to create order', 'danger');
+          } finally { 
+            el('createBtn').disabled = false; 
+            el('createBtn').innerHTML = '<i class="fas fa-plus me-2"></i>Create Order'; 
+          }
+        }
+
+        function toggleAutoRefresh() {
+          isAutoRefreshOn = !isAutoRefreshOn;
+          const btn = el('autoRefreshToggle');
+          if (isAutoRefreshOn) {
+            btn.innerHTML = '<i class="fas fa-pause"></i> Auto';
+            btn.classList.remove('btn-outline-secondary');
+            btn.classList.add('btn-outline-success');
+            autoRefreshInterval = setInterval(refreshOrders, 5000);
+            showToast('Auto-refresh enabled', 'info');
+          } else {
+            btn.innerHTML = '<i class="fas fa-play"></i> Auto';
+            btn.classList.remove('btn-outline-success');
+            btn.classList.add('btn-outline-secondary');
+            clearInterval(autoRefreshInterval);
+            showToast('Auto-refresh disabled', 'info');
+          }
+        }
+
+        // Event listeners
+        el('createOrderForm').addEventListener('submit', (e) => { e.preventDefault(); createOrder(); });
+        el('refreshBtn').addEventListener('click', refreshOrders);
+        el('exportBtn').addEventListener('click', exportToCSV);
+        el('autoRefreshToggle').addEventListener('click', toggleAutoRefresh);
+        el('searchInput').addEventListener('input', filterAndDisplayOrders);
+        el('statusFilter').addEventListener('change', filterAndDisplayOrders);
+        el('dish').addEventListener('keydown', (e) => { if (e.key === 'Enter') createOrder(); });
+        el('darkModeToggle').addEventListener('change', toggleDarkMode);
+
+        // Initialize
+        (async () => {
+          // Load dark mode preference
+          const darkMode = localStorage.getItem('darkMode') === 'true';
+          if (darkMode) {
+            document.body.classList.add('dark-mode');
+            el('darkModeToggle').checked = true;
+            el('darkModeToggle').nextElementSibling.innerHTML = '<i class="fas fa-sun"></i>';
+          }
+
+          await findApiBase();
+          await refreshHealth();
+          await refreshOrders();
+          
+          // Start auto-refresh
+          if (isAutoRefreshOn) {
+            autoRefreshInterval = setInterval(refreshOrders, 5000);
+          }
+          setInterval(async () => { await findApiBase(); await refreshHealth(); }, 8000);
+        })();
+      </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: web-ui-deployment, namespace: kitchen-app }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: kitchen-web-ui } }
+  template:
+    metadata: { labels: { app: kitchen-web-ui } }
+    spec:
+      containers:
+        - name: kitchen-web-ui
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 80 }]
+          livenessProbe:  { httpGet: { path: /health, port: 80 }, initialDelaySeconds: 10 }
+          readinessProbe: { httpGet: { path: /health, port: 80 }, initialDelaySeconds: 5 }
+          volumeMounts:
+            - name: web-ui-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: nginx.conf
+            - name: web-ui-config
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+          resources:
+            requests: { memory: '32Mi', cpu: '25m' }
+            limits:   { memory: '64Mi', cpu: '100m' }
+      volumes:
+        - name: web-ui-config
+          configMap:
+            name: web-ui-config
+---
+apiVersion: v1
+kind: Service
+metadata: { name: web-ui-service, namespace: kitchen-app }
+spec:
+  type: NodePort
+  selector: { app: kitchen-web-ui }
+  ports: [{ port: 80, targetPort: 80, nodePort: 30080 }]
